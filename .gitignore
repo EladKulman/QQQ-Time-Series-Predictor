@@ -1,0 +1,31 @@
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+.pythonlibs/
+.torchlibs/
+oath/
+@oath
+
+# Generated models and scratch output
+models/
+tmp/
+output/demo/
+slurm-*.out
+*.log
+
+# Python and editor caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.DS_Store
+.idea/
+.vscode/
+.chart-data-*/

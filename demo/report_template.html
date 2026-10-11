@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QQQ Time-Series Predictor · Demo</title>
+<style>
+  :root{font-family:system-ui,sans-serif;color:#172c42;background:#f3f6fa;font-size:16px}
+  body{max-width:1120px;margin:48px auto;padding:0 24px}h1{font-size:36px;letter-spacing:-1px;margin:12px 0}
+  h2{font-size:20px;margin:0 0 12px}p{line-height:1.6;max-width:940px;color:#4a5e72}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:2px;color:#176c68;text-transform:uppercase}
+  section{background:white;border:1px solid #dde5ee;border-radius:14px;padding:24px;margin:24px 0}
+  .controls{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:24px}label{font-size:14px;font-weight:600}
+  select{display:block;min-width:220px;max-width:100%;padding:10px;margin-top:8px;border:1px solid #acbccd;border-radius:6px;background:white;color:#172c42}
+  svg{width:100%;height:auto;display:block}.legend{display:flex;gap:24px;flex-wrap:wrap;font-size:14px;margin:12px 0}
+  .legend span:before{content:'';display:inline-block;width:16px;height:3px;background:var(--color);vertical-align:middle;margin-right:8px}
+  .scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+  th,td{text-align:right;padding:12px 10px;border-bottom:1px solid #e6ecf2;white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:#51677d;font-weight:600}
+  a{color:#176c68}footer{color:#64778a;font-size:13px;margin:24px 0 40px;line-height:1.7}
+</style>
+<header><div class="eyebrow">Deep learning workshop · Elad Kulman &amp; Tom Weitman</div>
+<h1>QQQ Time-Series Predictor</h1><h2>__TITLE__</h2><p>__DESCRIPTION__</p></header>
+<section>
+  <div class="controls"><label>Model<select id="model"></select></label><label>Forecast origin<select id="window"></select></label></div>
+  <h2 id="chart-title"></h2><p>Daily log returns at horizons 1–5, in percent. The shaded band is the 10th–90th percentile interval.</p>
+  <svg id="chart" viewBox="0 0 1000 360" role="img" aria-label="Forecast median, actual returns and 80 percent prediction interval"></svg>
+  <div class="legend"><span style="--color:#167d8d">Forecast median</span><span style="--color:#23344c">Actual return</span><span style="--color:#c1e3e5">80% interval</span></div>
+  <div class="scroll"><table><thead><tr><th>Session</th><th>Horizon</th><th>10th percentile</th><th>Median</th><th>90th percentile</th><th>Actual</th></tr></thead><tbody id="forecast-table"></tbody></table></div>
+</section>
+<section><h2>Scores across all included sessions</h2>
+  <p>Lower weighted quantile loss (WQL), MAE, and RMSE are better. Interval coverage should be near 80%. MAE and RMSE below use log-return units.</p>
+  <div class="scroll"><table><thead><tr><th>Model</th><th>Sessions</th><th>Quantiles</th><th>WQL</th><th>MAE</th><th>RMSE</th><th>80% coverage</th></tr></thead><tbody id="metrics-table"></tbody></table></div>
+</section>
+<footer>Data snapshot: January 2006–September 2026. All forecasts shown are historical, not current market predictions.<br>
+<a href="forecasts.csv" download>Download forecast CSV</a> · <a href="metrics.json" download>Download metrics and provenance</a><br>
+This page is self-contained and works offline. Scores from the two demo modes use different samples and quantile grids.</footer>
+<script type="application/json" id="payload">__PAYLOAD__</script>
+<script>
+const data=JSON.parse(document.getElementById('payload').textContent);
+const model=document.getElementById('model'), windowSelect=document.getElementById('window');
+const pct=x=>(x*100).toFixed(3)+'%';
+for(const m of data.metrics) model.add(new Option(m.label,m.model));
+if(data.metrics.some(m=>m.model==='fine_tuned')) model.value='fine_tuned';
+const windows=[...new Set(data.rows.map(r=>r.window))].sort((a,b)=>a-b);
+for(const w of windows){const r=data.rows.find(r=>r.window===w);windowSelect.add(new Option(r.forecast_origin+' · window '+w,w));}
+windowSelect.value=data.initialWindow;
+const metricBody=document.getElementById('metrics-table');
+for(const m of data.metrics){const tr=metricBody.insertRow();for(const v of [m.label,m.rows,m.quantiles,m.weighted_quantile_loss?.toFixed(6)??'—',m.mae.toFixed(6),m.rmse.toFixed(6),pct(m.coverage_80)])tr.insertCell().textContent=v;}
+function draw(){
+  const rows=data.rows.filter(r=>r.model===model.value&&r.window===Number(windowSelect.value)).sort((a,b)=>a.horizon-b.horizon);
+  document.getElementById('chart-title').textContent='Forecast issued after '+rows[0].forecast_origin+' close';
+  const body=document.getElementById('forecast-table');body.replaceChildren();
+  for(const r of rows){const tr=body.insertRow();for(const v of [r.date,r.horizon,pct(r['q0.1']),pct(r.prediction),pct(r['q0.9']),pct(r.actual)])tr.insertCell().textContent=v;}
+  const svg=document.getElementById('chart');svg.replaceChildren();
+  function node(tag,attrs,text){const el=document.createElementNS('http://www.w3.org/2000/svg',tag);for(const [k,v]of Object.entries(attrs))el.setAttribute(k,v);if(text!==undefined)el.textContent=text;svg.append(el);return el;}
+  const values=rows.flatMap(r=>[r.actual,r.prediction,r['q0.1'],r['q0.9'],0]);
+  const lo=Math.min(...values),hi=Math.max(...values),pad=Math.max((hi-lo)*.12,.001),min=lo-pad,max=hi+pad;
+  const x=i=>90+i*850/Math.max(rows.length-1,1),y=v=>300-(v-min)/(max-min)*270;
+  for(let i=0;i<=4;i++){const v=min+(max-min)*i/4;node('line',{x1:80,x2:950,y1:y(v),y2:y(v),stroke:'#e4eaf1'});node('text',{x:68,y:y(v)+4,'text-anchor':'end',fill:'#51677d','font-size':13},pct(v));}
+  node('line',{x1:80,x2:950,y1:y(0),y2:y(0),stroke:'#9babbc','stroke-dasharray':'4 4'});
+  const band=rows.map((r,i)=>[x(i),y(r['q0.1'])]).concat(rows.map((r,i)=>[x(i),y(r['q0.9'])]).reverse()).map(p=>p.join(',')).join(' ');
+  node('polygon',{points:band,fill:'#d7eff0','fill-opacity':.8});
+  for(const [key,color] of [['prediction','#167d8d'],['actual','#23344c']]){
+    node('polyline',{points:rows.map((r,i)=>x(i)+','+y(r[key])).join(' '),fill:'none',stroke:color,'stroke-width':2.5});
+    rows.forEach((r,i)=>node('circle',{cx:x(i),cy:y(r[key]),r:4,fill:color}));
+  }
+  rows.forEach((r,i)=>node('text',{x:x(i),y:330,'text-anchor':'middle',fill:'#51677d','font-size':13},r.date));
+}
+model.addEventListener('change',draw);windowSelect.addEventListener('change',draw);draw();
+</script>
+</html>
